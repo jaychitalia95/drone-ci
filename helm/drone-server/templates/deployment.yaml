@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "drone-server.fullname" . }}
+  labels:
+    {{- include "drone-server.labels" . | nindent 4 }}
+spec:
+{{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+{{- end }}
+  selector:
+    matchLabels:
+      {{- include "drone-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+    {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      labels:
+        {{- include "drone-server.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+          - name: DRONE_USER_CREATE
+            valueFrom:
+              secretKeyRef:
+                name: drone-envs
+                key: DRONE_USER_CREATE
+          - name: DRONE_GITHUB_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: drone-envs
+                key: DRONE_GITHUB_CLIENT_ID
+          - name: DRONE_GITHUB_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: drone-envs
+                key: DRONE_GITHUB_CLIENT_SECRET
+          - name: DRONE_RPC_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: drone-envs
+                key: DRONE_RPC_SECRET
+          - name: DRONE_SERVER_HOST
+            valueFrom:
+              secretKeyRef:
+                name: drone-envs
+                key: DRONE_SERVER_HOST
+          - name: DRONE_DATABASE_DATASOURCE
+            valueFrom:
+              secretKeyRef:
+                name: drone-envs
+                key: DRONE_DATABASE_DATASOURCE
+          - name: DRONE_DATABASE_DRIVER
+            value: postgres
+          - name: DRONE_SERVER_PORT
+            value: :443
+        - name: {{ .Chart.Name }}-cloudsql-proxy
+          image: "{{ .Values.cloudsql.image.repository }}:{{ .Values.cloudsql.image.tag | default .Chart.AppVersion }}"
+          command:
+            - "/cloud_sql_proxy"
+            - "-instances={{ .Values.cloudsql.instance.project_id }}:{{ .Values.cloudsql.instance.region }}:{{ .Values.cloudsql.instance.name }}=tcp:{{ .Values.cloudsql.instance.db_port }}"
+            - "-credential_file=/secrets/credentials.json"
+          securityContext:
+            {{- toYaml .Values.cloudsql.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: cloudsql-instance-credentials
+              mountPath: /secrets/
+              readOnly: true
+          resources:
+            {{- toYaml .Values.cloudsql.resources | nindent 12 }} 
+      volumes:
+      - name: cloudsql-instance-credentials
+        secret:
+          secretName: gcp-sa-key
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
